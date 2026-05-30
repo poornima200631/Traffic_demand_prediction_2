@@ -14,6 +14,24 @@ train["Temperature"] = train["Temperature"].fillna(
     train["Temperature"].median()
 )
 
+# Day features
+
+day_map = {
+    "Monday": 0,
+    "Tuesday": 1,
+    "Wednesday": 2,
+    "Thursday": 3,
+    "Friday": 4,
+    "Saturday": 5,
+    "Sunday": 6
+}
+
+train["day_num"] = train["day"].map(day_map)
+
+train["is_weekend"] = (
+    train["day_num"] >= 5
+).astype(int)
+
 # Timestamp features
 train[["hour", "minute"]] = train["timestamp"].str.split(
     ":", expand=True
@@ -22,6 +40,31 @@ train[["hour", "minute"]] = train["timestamp"].str.split(
 train["time_slot"] = (
     train["hour"] * 4
     + train["minute"] // 15
+)
+
+train["rush_hour"] = (
+    (
+        (train["hour"] >= 7)
+        & (train["hour"] <= 10)
+    )
+    |
+    (
+        (train["hour"] >= 17)
+        & (train["hour"] <= 20)
+    )
+).astype(int)
+
+train["part_of_day"] = pd.cut(
+    train["hour"],
+    bins=[0,6,12,17,21,24],
+    labels=[
+        "Night",
+        "Morning",
+        "Afternoon",
+        "Evening",
+        "LateNight"
+    ],
+    include_lowest=True
 )
 
 train["road_lane"] = (
@@ -35,8 +78,39 @@ train["geo_road"] = (
     + "_"
     + train["RoadType"].astype(str)
 )
+
+
+train["geo_time"] = (
+    train["geohash"]
+    + "_"
+    + train["time_slot"].astype(str)
+)  
+
+
 train["high_capacity_road"] = (
     (train["NumberofLanes"] >= 4).astype(str)
+)
+
+# Average demand per geohash
+
+geo_mean = train.groupby(
+    "geohash"
+)["demand"].mean()
+
+train["geo_avg_demand"] = (
+    train["geohash"]
+    .map(geo_mean)
+)
+
+# Average demand per road type
+
+road_mean = train.groupby(
+    "RoadType"
+)["demand"].mean()
+
+train["road_avg_demand"] = (
+    train["RoadType"]
+    .map(road_mean)
 )
 # Features
 X = train.drop(columns=["demand"])
@@ -59,7 +133,9 @@ cat_features = [
     "Weather",
     "road_lane",
     "geo_road",
-    "high_capacity_road"
+    "geo_time",
+    "high_capacity_road",
+    "part_of_day"
 ]
 
 # Split
@@ -72,20 +148,22 @@ X_train, X_val, y_train, y_val = train_test_split(
 )
 # Model
 model = CatBoostRegressor(
-    iterations=1000,
-    depth=10,
-    learning_rate=0.03,
+    iterations=3000,
+    depth=8,
+    learning_rate=0.02,
     loss_function="RMSE",
     eval_metric="R2",
     random_seed=42,
-    verbose=100
+    verbose=200
 )
 
 # Train
 model.fit(
     X_train,
     y_train,
-    cat_features=cat_features
+    eval_set=(X_val, y_val),
+    cat_features=cat_features,
+    use_best_model=True
 )
 
 # Validation
@@ -113,6 +191,11 @@ test["Weather"] = test["Weather"].fillna("Unknown")
 test["Temperature"] = test["Temperature"].fillna(
     train["Temperature"].median()
 )
+test["day_num"] = test["day"].map(day_map)
+
+test["is_weekend"] = (
+    test["day_num"] >= 5
+).astype(int)
 
 test[["hour", "minute"]] = test["timestamp"].str.split(
     ":", expand=True
@@ -121,6 +204,30 @@ test[["hour", "minute"]] = test["timestamp"].str.split(
 test["time_slot"] = (
     test["hour"] * 4
     + test["minute"] // 15
+)
+test["rush_hour"] = (
+    (
+        (test["hour"] >= 7)
+        & (test["hour"] <= 10)
+    )
+    |
+    (
+        (test["hour"] >= 17)
+        & (test["hour"] <= 20)
+    )
+).astype(int)
+
+test["part_of_day"] = pd.cut(
+    test["hour"],
+    bins=[0,6,12,17,21,24],
+    labels=[
+        "Night",
+        "Morning",
+        "Afternoon",
+        "Evening",
+        "LateNight"
+    ],
+    include_lowest=True
 )
 
 test["road_lane"] = (
@@ -135,8 +242,24 @@ test["geo_road"] = (
     + test["RoadType"].astype(str)
 )
 
+test["geo_time"] = (
+    test["geohash"]
+    + "_"
+    + test["time_slot"].astype(str)
+)
+
 test["high_capacity_road"] = (
     (test["NumberofLanes"] >= 4).astype(str)
+)
+
+test["geo_avg_demand"] = (
+    test["geohash"]
+    .map(geo_mean)
+)
+
+test["road_avg_demand"] = (
+    test["RoadType"]
+    .map(road_mean)
 )
 
 # Save Index before dropping
