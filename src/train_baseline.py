@@ -112,6 +112,13 @@ train["road_avg_demand"] = (
     train["RoadType"]
     .map(road_mean)
 )
+
+
+
+print(train[[
+    "geo_avg_demand",
+    "road_avg_demand",
+]].isnull().sum())
 # Features
 X = train.drop(columns=["demand"])
 y = train["demand"]
@@ -163,7 +170,8 @@ model.fit(
     y_train,
     eval_set=(X_val, y_val),
     cat_features=cat_features,
-    use_best_model=True
+    use_best_model=True,
+    early_stopping_rounds=300
 )
 
 # Validation
@@ -262,6 +270,7 @@ test["road_avg_demand"] = (
     .map(road_mean)
 )
 
+
 # Save Index before dropping
 test_index = test["Index"]
 
@@ -294,3 +303,5 @@ submission.to_csv(
 print("\nSubmission file created!")
 
 model.save_model("models/catboost_v1.cbm")
+
+
