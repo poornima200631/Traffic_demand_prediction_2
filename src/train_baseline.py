@@ -13,79 +13,89 @@ test = pd.read_csv("data/raw/test.csv")
 # ==========================
 # MISSING VALUES
 # ==========================
-train["RoadType"] = train["RoadType"].fillna("Unknown")
-train["Weather"] = train["Weather"].fillna("Unknown")
-train["Temperature"] = train["Temperature"].fillna(train["Temperature"].median())
-
-test["RoadType"] = test["RoadType"].fillna("Unknown")
-test["Weather"] = test["Weather"].fillna("Unknown")
-test["Temperature"] = test["Temperature"].fillna(train["Temperature"].median())
+for df in [train, test]:
+    df["RoadType"] = df["RoadType"].fillna("Unknown")
+    df["Weather"] = df["Weather"].fillna("Unknown")
+    df["Temperature"] = df["Temperature"].fillna(train["Temperature"].median())
 
 # ==========================
-# BASIC FEATURES
+# DAY FEATURES
 # ==========================
 day_map = {
     "Monday": 0, "Tuesday": 1, "Wednesday": 2,
     "Thursday": 3, "Friday": 4, "Saturday": 5, "Sunday": 6
 }
 
-train["day_num"] = train["day"].map(day_map)
-test["day_num"] = test["day"].map(day_map)
-
-train["is_weekend"] = (train["day_num"] >= 5).astype(int)
-test["is_weekend"] = (test["day_num"] >= 5).astype(int)
+for df in [train, test]:
+    df["day_num"] = df["day"].map(day_map)
+    df["is_weekend"] = (df["day_num"] >= 5).astype(int)
 
 # ==========================
 # TIME FEATURES
 # ==========================
-train[["hour", "minute"]] = train["timestamp"].str.split(":", expand=True).astype(int)
-test[["hour", "minute"]] = test["timestamp"].str.split(":", expand=True).astype(int)
+for df in [train, test]:
+    df[["hour", "minute"]] = df["timestamp"].str.split(":", expand=True).astype(int)
 
-train["time_slot"] = train["hour"] * 4 + train["minute"] // 15
-test["time_slot"] = test["hour"] * 4 + test["minute"] // 15
+    df["time_slot"] = df["hour"] * 4 + df["minute"] // 15
 
-train["rush_hour"] = ((train["hour"].between(7,10)) | (train["hour"].between(17,20))).astype(int)
-test["rush_hour"] = ((test["hour"].between(7,10)) | (test["hour"].between(17,20))).astype(int)
+    df["rush_hour"] = (
+        df["hour"].between(7, 10) |
+        df["hour"].between(17, 20)
+    ).astype(int)
 
-# Cyclical encoding
-train["hour_sin"] = np.sin(2 * np.pi * train["hour"] / 24)
-train["hour_cos"] = np.cos(2 * np.pi * train["hour"] / 24)
+    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
+    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
 
-test["hour_sin"] = np.sin(2 * np.pi * test["hour"] / 24)
-test["hour_cos"] = np.cos(2 * np.pi * test["hour"] / 24)
+    df["is_night"] = ((df["hour"] >= 22) | (df["hour"] <= 5)).astype(int)
+    df["is_morning"] = df["hour"].between(6, 11).astype(int)
+    df["is_evening"] = df["hour"].between(17, 21).astype(int)
 
 # ==========================
 # INTERACTION FEATURES
 # ==========================
-train["road_lane"] = train["RoadType"] + "_" + train["NumberofLanes"].astype(str)
-test["road_lane"] = test["RoadType"] + "_" + test["NumberofLanes"].astype(str)
+for df in [train, test]:
+    df["road_lane"] = df["RoadType"].astype(str) + "_" + df["NumberofLanes"].astype(str)
+    df["geo_road"] = df["geohash"].astype(str) + "_" + df["RoadType"].astype(str)
+    df["geo_time"] = df["geohash"].astype(str) + "_" + df["time_slot"].astype(str)
+    df["geo_hour"] = df["geohash"].astype(str) + "_" + df["hour"].astype(str)
+    df["road_weather"] = df["RoadType"].astype(str) + "_" + df["Weather"].astype(str)
+    df["lane_weather"] = df["NumberofLanes"].astype(str) + "_" + df["Weather"].astype(str)
 
-train["geo_road"] = train["geohash"] + "_" + train["RoadType"]
-test["geo_road"] = test["geohash"] + "_" + test["RoadType"]
-
-train["geo_time"] = train["geohash"] + "_" + train["time_slot"].astype(str)
-test["geo_time"] = test["geohash"] + "_" + test["time_slot"].astype(str)
-
-train["geo_hour"] = train["geohash"] + "_" + train["hour"].astype(str)
-test["geo_hour"] = test["geohash"] + "_" + test["hour"].astype(str)
-
-train["road_weather"] = train["RoadType"] + "_" + train["Weather"]
-test["road_weather"] = test["RoadType"] + "_" + test["Weather"]
-
-train["lane_weather"] = train["NumberofLanes"].astype(str) + "_" + train["Weather"]
-test["lane_weather"] = test["NumberofLanes"].astype(str) + "_" + test["Weather"]
+    df["high_capacity_road"] = (df["NumberofLanes"] >= 4).astype(int)
 
 # ==========================
-# IMPORTANT FIX
+# GLOBAL STAT FEATURES (FIXED SAFE VERSION)
 # ==========================
-train["high_capacity_road"] = (train["NumberofLanes"] >= 4).astype(int)
-test["high_capacity_road"] = (test["NumberofLanes"] >= 4).astype(int)
+
+# GEO FEATURES
+geo_mean_map = train.groupby("geohash")["demand"].mean()
+geo_std_map = train.groupby("geohash")["demand"].std()
+
+train["geo_mean"] = train["geohash"].map(geo_mean_map)
+train["geo_std"] = train["geohash"].map(geo_std_map)
+
+test["geo_mean"] = test["geohash"].map(geo_mean_map)
+test["geo_std"] = test["geohash"].map(geo_std_map)
+
+# ROAD FEATURES
+road_mean_map = train.groupby("RoadType")["demand"].mean()
+
+train["road_mean"] = train["RoadType"].map(road_mean_map)
+test["road_mean"] = test["RoadType"].map(road_mean_map)
+
+# HANDLE MISSING VALUES (IMPORTANT)
+for df in [train, test]:
+    df["geo_mean"] = df["geo_mean"].fillna(train["demand"].mean())
+    df["geo_std"] = df["geo_std"].fillna(0)
+    df["road_mean"] = df["road_mean"].fillna(train["demand"].mean())
 
 # ==========================
-# TARGET ENCODING (NO LEAKAGE)
+# TARGET ENCODING (SAFE)
 # ==========================
 def target_encode(train, test, col, target):
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
+
+    global_mean = train[target].mean()
 
     train_encoded = np.zeros(len(train))
     test_encoded = np.zeros(len(test))
@@ -95,8 +105,8 @@ def target_encode(train, test, col, target):
 
         means = X_tr.groupby(col)[target].mean()
 
-        train_encoded[val_idx] = X_val[col].map(means)
-        test_encoded += test[col].map(means).fillna(train[target].mean()) / 5
+        train_encoded[val_idx] = X_val[col].map(means).fillna(global_mean)
+        test_encoded += test[col].map(means).fillna(global_mean) / 5
 
     return train_encoded, test_encoded
 
@@ -105,15 +115,14 @@ train["geo_te"], test["geo_te"] = target_encode(train, test, "geohash", "demand"
 train["road_te"], test["road_te"] = target_encode(train, test, "RoadType", "demand")
 
 # ==========================
-# SPLIT FEATURES
+# CLEAN FEATURES
 # ==========================
-X = train.drop(columns=["demand"])
+drop_cols = ["demand", "Index", "timestamp", "hour", "minute"]
+X = train.drop(columns=drop_cols)
 y = train["demand"]
 
-X = X.drop(columns=["Index", "timestamp", "hour", "minute"])
-
 # ==========================
-# CATEGORICAL FEATURES (FIXED)
+# CRITICAL FIX: FORCE ALL STRING CATS
 # ==========================
 cat_features = [
     "geohash",
@@ -129,27 +138,31 @@ cat_features = [
     "lane_weather"
 ]
 
+for col in cat_features:
+    X[col] = X[col].astype(str)
+    test[col] = test[col].astype(str)
+
 # ==========================
-# TRAIN/VALID SPLIT
+# TRAIN VALID SPLIT
 # ==========================
 X_train, X_val, y_train, y_val = train_test_split(
-    X, y, test_size=0.2, random_state=42, shuffle=True
+    X, y, test_size=0.2, random_state=42
 )
 
 # ==========================
-# MODEL
+# MODEL (STABLE BEST VERSION)
 # ==========================
 model = CatBoostRegressor(
-    iterations=8000,
-    learning_rate=0.03,
-    depth=8,
-    l2_leaf_reg=3,
-    random_strength=3,
-    bagging_temperature=1,
+    iterations=6000,
+    learning_rate=0.04,
+    depth=6,
     loss_function="RMSE",
     eval_metric="R2",
+    random_strength=2,
+    bagging_temperature=1,
+    l2_leaf_reg=5,
     verbose=500,
-    early_stopping_rounds=500
+    early_stopping_rounds=300
 )
 
 # ==========================
@@ -173,22 +186,14 @@ print("\nR2 Score:", r2_score(y_val, preds))
 # ==========================
 importance = model.get_feature_importance()
 
-print("\nFeature Importance:")
-for f, imp in sorted(zip(X.columns, importance), key=lambda x: x[1], reverse=True):
+print("\nTop Features:")
+for f, imp in sorted(zip(X.columns, importance), key=lambda x: x[1], reverse=True)[:20]:
     print(f"{f}: {imp:.2f}")
 
 # ==========================
-# TEST PREPARATION
+# FINAL TEST PREDICTION (FIXED)
 # ==========================
-test["geo_te"] = test["geohash"].map(train.groupby("geohash")["demand"].mean()).fillna(train["demand"].mean())
-test["road_te"] = test["RoadType"].map(train.groupby("RoadType")["demand"].mean()).fillna(train["demand"].mean())
-
-test = test[X.columns]
-
-# ==========================
-# PREDICTION
-# ==========================
-test_preds = model.predict(test)
+test_preds = model.predict(test[X.columns])
 
 submission = pd.DataFrame({
     "Index": pd.read_csv("data/raw/test.csv")["Index"],
@@ -197,6 +202,6 @@ submission = pd.DataFrame({
 
 submission.to_csv("submissions/submission.csv", index=False)
 
-model.save_model("models/catboost_v1.cbm")
+model.save_model("models/catboost_final.cbm")
 
-print("\nDone!")
+print("\nDone successfully!")
